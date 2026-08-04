@@ -28,7 +28,7 @@
 仓库已内置 `/functions/sync.js`，与页面同一个 Pages 项目、同域部署，直接绑定 KV：
 
 1. Cloudflare 控制台把本仓库 **Connect 到 Pages**（构建输出目录设为仓库根 `/`，无构建命令）；
-2. Pages 项目 → **设置 → Functions → KV 命名空间绑定**，添加绑定：变量名 `SYNC_KV`，选 / 新建一个 KV 命名空间；
+2. Pages 项目 → **设置 → Functions → KV 命名空间绑定**，添加绑定：变量名 `CONTENT_OPS_SYNC`，选 / 新建一个 KV 命名空间；
 3. 完成。应用内同步端点默认就是同域 `/sync`，无需填地址。
 
 > 想本地部署也可：`wrangler pages deploy` 并在 `wrangler.toml` 里配 `kv_namespaces` 绑定 `SYNC_KV`。

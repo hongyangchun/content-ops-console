@@ -37,7 +37,7 @@ export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const k = url.searchParams.get('k');
   if (!k) return json({ error: 'missing k' }, 400);
-  const kv = context.env.SYNC_KV;
+  const kv = context.env.CONTENT_OPS_SYNC;
   if (!kv) return json({ error: 'KV not bound' }, 500);
   const raw = await kv.get(k);
   if (!raw) return json({ v: 0, data: null, ts: 0 });
@@ -54,7 +54,7 @@ export async function onRequestPut(context) {
   if (!body || typeof body.k !== 'string' || typeof body.data === 'undefined') {
     return json({ error: 'bad body' }, 400);
   }
-  const kv = context.env.SYNC_KV;
+  const kv = context.env.CONTENT_OPS_SYNC;
   if (!kv) return json({ error: 'KV not bound' }, 500);
   const rec = { v: Date.now(), data: body.data, ts: Date.now() };
   await kv.put(body.k, JSON.stringify(rec));
