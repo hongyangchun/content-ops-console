@@ -31,7 +31,7 @@
 2. Pages 项目 → **设置 → Functions → KV 命名空间绑定**，添加绑定：变量名 `CONTENT_OPS_SYNC`，选 / 新建一个 KV 命名空间；
 3. 完成。应用内同步端点默认就是同域 `/sync`，无需填地址。
 
-> 想本地部署也可：`wrangler pages deploy` 并在 `wrangler.toml` 里配 `kv_namespaces` 绑定 `SYNC_KV`。
+> 仓库已含 `wrangler.toml`（绑定变量名 `CONTENT_OPS_SYNC`），无论 `wrangler pages deploy` 还是 GitHub 自动部署都会自动带上该 KV 绑定，无需手动在控制台配。
 
 ### 2) 应用内启用
 
@@ -46,6 +46,10 @@
 
 可直接托管到任意静态托管（Cloudflare Pages / GitHub Pages / Vercel 等）。
 Cloudflare Pages 默认入口为 `index.html`，本仓库已提供该入口文件。
+
+> **已上线（含云同步后端）**：`https://content-ops-console.pages.dev`
+> 该 Pages 项目已绑定 KV（变量名 `CONTENT_OPS_SYNC`），同步接口同域 `/sync`。仓库已 Connect 到 GitHub，推 `main` 即自动重新部署。
+> 打开后点右上角 `◈ DATA` → 底部「跨设备云同步」→ 填**同步口令**并勾**自动同步**，多端即可互通。
 
 ## 主题
 

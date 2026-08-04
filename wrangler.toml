@@ -1,0 +1,7 @@
+name = "content-ops-console"
+pages_build_output_dir = "."
+compatibility_date = "2026-08-04"
+
+[[kv_namespaces]]
+binding = "CONTENT_OPS_SYNC"
+id = "57dbad05e0fb4d9ea647667113ff05b3"

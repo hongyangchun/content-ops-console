@@ -10,3 +10,6 @@ build/
 # 系统 / 依赖
 .DS_Store
 node_modules/
+
+# wrangler 本地缓存（日志等，非源码）
+.wrangler/
