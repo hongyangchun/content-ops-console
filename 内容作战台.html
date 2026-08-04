@@ -430,6 +430,15 @@ tbody tr:hover{background:rgba(34,211,238,.05)}
 .menu button.warn:hover{background:rgba(251,113,133,.13);color:#FB7185}
 .menu .m-sep{height:1px;background:var(--line);margin:6px 4px}
 .menu .m-cap{font-size:10px;color:var(--ink-3);font-weight:800;padding:7px 11px 3px;letter-spacing:1.2px}
+/* 云同步 */
+.sync-box{padding:6px 11px 9px}
+.sync-in{width:100%;box-sizing:border-box;margin-bottom:6px;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);font-size:12px;font-family:inherit}
+.sync-in::placeholder{color:var(--ink-3)}
+.sync-auto{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2);margin:2px 0 8px;cursor:pointer}
+.sync-auto input{accent-color:#22D3EE;width:14px;height:14px}
+.sync-btns{display:flex;gap:6px}
+.sync-btns button{flex:1;justify-content:center;padding:7px 4px;font-size:12px}
+.sync-status{margin-top:7px;font-size:11px;color:var(--ink-3);line-height:1.4;word-break:break-word}
 
 /* Toast */
 .toast{
@@ -925,6 +934,19 @@ html[data-theme="light"] .toast{background:rgba(255,255,255,.97);border:1px soli
   <div class="m-cap">示例数据</div>
   <button data-act="load-demo">▷ 载入示例数据</button>
   <button class="warn" data-act="clear-all">✕ 清空全部数据</button>
+  <div class="m-sep"></div>
+  <div class="m-cap">跨设备云同步 · Cloudflare</div>
+  <div class="sync-box">
+    <input id="syncUrl" class="sync-in" placeholder="Worker 地址，如 https://x.workers.dev/sync">
+    <input id="syncPass" class="sync-in" type="password" placeholder="同步口令（本地保存·用于加密）">
+    <label class="sync-auto"><input type="checkbox" id="syncAuto"> 自动同步（改动即上传）</label>
+    <div class="sync-btns">
+      <button data-act="sync-push">▲ 推送</button>
+      <button data-act="sync-pull">▼ 拉取</button>
+      <button class="warn" data-act="sync-disconnect">断开</button>
+    </div>
+    <div class="sync-status" id="syncStatus">未连接</div>
+  </div>
 </div>
 <input type="file" id="fileImp" accept=".json,application/json" class="hide">
 
@@ -1091,6 +1113,7 @@ function blankState(){
     meeting:{week:'', done:[false,false,false,false]},
     ratio:{'爆款':2,'日常':3,'系列':1,'测试':1},
     ui:{tab:'today', topicFilter:'全部', assetFilter:'全部', schFilter:'全部', struct:'视频', rateFormat:'视频', attrDim:'bucket', attrMetric:'exposure', assetQ:'', theme:'auto'},
+    sync:{url:'', pass:'', auto:false, last:0},
     demo:false
   };
 }
@@ -1114,7 +1137,86 @@ function save(){
   _saveTimer = setTimeout(function(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
     catch(e){ toast('保存失败：存储空间可能已满'); }
+    maybePush();
   }, 120);
+}
+
+/* ---------- 跨设备云同步（Cloudflare Worker + KV，客户端 AES 加密） ---------- */
+var HAS_CRYPTO = !!(window.crypto && window.crypto.subtle);
+var SYNC_SALT = new Uint8Array([12,34,56,78,90,11,22,33,44,55,66,77,88,99,10,21]);
+
+function setSyncStatus(msg){ var el=$('syncStatus'); if(el) el.textContent = msg; }
+function syncFill(){
+  if($('syncUrl')) $('syncUrl').value = (S.sync&&S.sync.url)||'';
+  if($('syncPass')) $('syncPass').value = (S.sync&&S.sync.pass)||'';
+  if($('syncAuto')) $('syncAuto').checked = !!(S.sync&&S.sync.auto);
+  if(!HAS_CRYPTO){ setSyncStatus('当前环境不支持加密同步（需 https 或 localhost）'); return; }
+  if(S.sync && S.sync.url && S.sync.pass) setSyncStatus('已配置 · 点「推送/拉取」或开自动同步');
+  else setSyncStatus('未连接');
+}
+function b64enc(buf){ var b=new Uint8Array(buf), s=''; for(var i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function b64dec(str){ var s=atob(str), b=new Uint8Array(s.length); for(var i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return b; }
+async function sha256hex(str){
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join('');
+}
+async function deriveKey(pass){
+  var base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt: SYNC_SALT, iterations: 100000, hash:'SHA-256' },
+    base, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
+}
+async function encState(obj, key){
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  var pt = new TextEncoder().encode(JSON.stringify(obj));
+  var ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv:iv }, key, pt);
+  var out = new Uint8Array(12 + ct.byteLength); out.set(iv,0); out.set(new Uint8Array(ct),12);
+  return b64enc(out.buffer);
+}
+async function decState(b64, key){
+  var buf = b64dec(b64), iv = buf.slice(0,12), ct = buf.slice(12);
+  var pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv:iv }, key, ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+var _pushTimer = null;
+function maybePush(){
+  if(!(S.sync && S.sync.auto && S.sync.url && S.sync.pass && HAS_CRYPTO)) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = setTimeout(pushSync, 1500);
+}
+async function pushSync(){
+  if(!HAS_CRYPTO){ setSyncStatus('当前环境不支持加密同步'); return; }
+  if(!S.sync.url || !S.sync.pass){ setSyncStatus('请先填写 Worker 地址与口令'); return; }
+  setSyncStatus('上传中…');
+  try{
+    var key = await deriveKey(S.sync.pass);
+    var k = await sha256hex(S.sync.pass);
+    S.sync.last = Date.now();
+    var blob = await encState(S, key);
+    var r = await fetch(S.sync.url, { method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({ k:k, data:blob, ts:Date.now() }) });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    setSyncStatus('已推送 '+new Date().toLocaleTimeString());
+  }catch(e){ setSyncStatus('推送失败：'+e.message); }
+}
+async function pullSync(){
+  if(!HAS_CRYPTO){ setSyncStatus('当前环境不支持加密同步'); return; }
+  if(!S.sync.url || !S.sync.pass){ setSyncStatus('请先填写 Worker 地址与口令'); return; }
+  setSyncStatus('拉取中…');
+  try{
+    var k = await sha256hex(S.sync.pass);
+    var r = await fetch(S.sync.url+'?k='+encodeURIComponent(k), { method:'GET' });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j = await r.json();
+    if(!j.data){ setSyncStatus('远端暂无数据，可先推送'); return; }
+    var key = await deriveKey(S.sync.pass);
+    var obj = await decState(j.data, key);
+    S = obj;
+    if(!S.sync) S.sync = {url:'',pass:'',auto:false,last:0};
+    if(!S.sync.url) S.sync.url=''; if(!S.sync.pass) S.sync.pass='';
+    save(); renderAll(); switchTab(S.ui.tab||'today');
+    S.sync.last = j.ts||Date.now();
+    setSyncStatus('已拉取 '+new Date().toLocaleTimeString());
+  }catch(e){ setSyncStatus('拉取失败：'+e.message); }
 }
 
 /* ---------- 工具 ---------- */
@@ -2306,6 +2408,12 @@ function bind(){
   });
   $('fileImp').addEventListener('change', function(){ if(this.files[0]){ impJSON(this.files[0]); this.value=''; } });
 
+  // 云同步输入
+  if($('syncUrl')) $('syncUrl').addEventListener('input', function(){ S.sync.url=this.value; save(); syncFill(); });
+  if($('syncPass')) $('syncPass').addEventListener('input', function(){ S.sync.pass=this.value; save(); syncFill(); });
+  if($('syncAuto')) $('syncAuto').addEventListener('change', function(){ S.sync.auto=this.checked; save(); if(this.checked) pushSync(); else setSyncStatus('已配置 · 点「推送/拉取」'); });
+  syncFill();
+
   // 全局委托
   document.addEventListener('click', function(e){
     var el = e.target.closest ? e.target.closest('[data-act]') : null;
@@ -2422,6 +2530,14 @@ function bind(){
       }
       $('dataMenu').classList.remove('on'); return;
     }
+
+    if(a==='sync-push'){ pushSync(); $('dataMenu').classList.remove('on'); return; }
+    if(a==='sync-pull'){ pullSync(); $('dataMenu').classList.remove('on'); return; }
+    if(a==='sync-disconnect'){
+      S.sync = {url:'', pass:'', auto:false, last:0};
+      save(); syncFill(); renderAll();
+      $('dataMenu').classList.remove('on'); toast('已断开云同步'); return;
+    }
   });
 
   document.querySelectorAll('[data-struct]').forEach(function(b){
@@ -2450,6 +2566,7 @@ function bind(){
   $('assetSearch').value = S.ui.assetQ || '';
   renderAll();
   switchTab(S.ui.tab || 'today');
+  if(S.sync && S.sync.auto && S.sync.url && S.sync.pass && HAS_CRYPTO){ pullSync(); }
   window.addEventListener('beforeunload', function(){
     try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){}
   });
