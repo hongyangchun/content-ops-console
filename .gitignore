@@ -1,0 +1,12 @@
+# 工作区元数据
+.workbuddy/
+
+# 开发分片源（最终产物为 index.html / 内容作战台.html）
+build/
+
+# 旧版（珊瑚粉）交付物，不再维护
+创作者运营工作台.html
+
+# 系统 / 依赖
+.DS_Store
+node_modules/
