@@ -19,33 +19,26 @@
 - **备份 / 迁移**：数据菜单（`◈ DATA`）支持 **JSON 备份导出 / 导入**，以及选题库 / 排期 / 复盘 **CSV 导出**。
 - **跨设备云同步（可选）**：见下方「跨设备云同步」章节。数据用「同步口令」在浏览器端做 AES-GCM 加密，**明文不出本机**，云端（Cloudflare KV）只存密文。
 
-## 跨设备云同步（Cloudflare Worker + KV）
+## 跨设备云同步（Cloudflare Pages Functions + KV）
 
-> 设计原则：**零知识**。前端用口令做 PBKDF2 → AES-GCM 加密，Worker 只负责存取密文，无法读取你的内容。换设备 / 换浏览器，输入同一「同步口令」即可恢复。
+> 设计原则：**零知识 + 同域**。前端用口令做 PBKDF2 → AES-GCM 加密，页面与同步接口同域（`/sync`），由 Pages Functions 在服务器端读写 KV 密文，Cloudflare 无法读取你的内容。**不需要单独的 Worker**。换设备 / 换浏览器，输入同一「同步口令」即可恢复。
 
-### 1) 部署同步后端（一次性）
+### 1) 启用同步后端（一次性）
 
-需要 Cloudflare 账号（Account ID + 有 Workers/KV 权限的 API Token）。
+仓库已内置 `/functions/sync.js`，与页面同一个 Pages 项目、同域部署，直接绑定 KV：
 
-```bash
-# 安装 wrangler（Node 22）
-npm install -g wrangler
-wrangler login            # 或 wrangler config 填 Token
+1. Cloudflare 控制台把本仓库 **Connect 到 Pages**（构建输出目录设为仓库根 `/`，无构建命令）；
+2. Pages 项目 → **设置 → Functions → KV 命名空间绑定**，添加绑定：变量名 `SYNC_KV`，选 / 新建一个 KV 命名空间；
+3. 完成。应用内同步端点默认就是同域 `/sync`，无需填地址。
 
-cd worker
-wrangler kv namespace create SYNC_KV     # 复制输出的 id
-# 把 id 填进 worker/wrangler.toml 的 id 字段
-wrangler deploy                          # 得到 https://content-ops-sync.<sub>.workers.dev
-```
-
-Worker 地址即为 `https://<你的子域>.workers.dev/sync`。
+> 想本地部署也可：`wrangler pages deploy` 并在 `wrangler.toml` 里配 `kv_namespaces` 绑定 `SYNC_KV`。
 
 ### 2) 应用内启用
 
-打开数据菜单 `◈ DATA` → 底部「跨设备云同步 · Cloudflare」：
-1. 填入上面的 **Worker 地址**（如 `https://xxx.workers.dev/sync`）；
+打开数据菜单 `◈ DATA` → 底部「跨设备云同步 · Cloudflare Pages + KV」：
+1. （一般不用改）同步端点默认 `/sync`（同域）；如需指向别处可手动改；
 2. 设一个 **同步口令**（本地保存，用于加密；多端必须一致）；
-3. 点 **▲ 推送** 上传，或开 **自动同步**（改动即上传）；另一台设备填入相同地址+口令后点 **▼ 拉取** 即可。
+3. 点 **▲ 推送** 上传，或开 **自动同步**（改动即上传）；另一台设备填相同口令后点 **▼ 拉取** 即可。
 
 > 同步为「最后写入覆盖」（last-write-wins），适合单人多端使用。本地 `localStorage` 仍是主存，云同步是增量镜像。
 

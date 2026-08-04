@@ -935,9 +935,9 @@ html[data-theme="light"] .toast{background:rgba(255,255,255,.97);border:1px soli
   <button data-act="load-demo">▷ 载入示例数据</button>
   <button class="warn" data-act="clear-all">✕ 清空全部数据</button>
   <div class="m-sep"></div>
-  <div class="m-cap">跨设备云同步 · Cloudflare</div>
+  <div class="m-cap">跨设备云同步 · Cloudflare Pages + KV</div>
   <div class="sync-box">
-    <input id="syncUrl" class="sync-in" placeholder="Worker 地址，如 https://x.workers.dev/sync">
+    <input id="syncUrl" class="sync-in" placeholder="同步端点（默认 /sync，同域一般不用改）">
     <input id="syncPass" class="sync-in" type="password" placeholder="同步口令（本地保存·用于加密）">
     <label class="sync-auto"><input type="checkbox" id="syncAuto"> 自动同步（改动即上传）</label>
     <div class="sync-btns">
@@ -1178,33 +1178,34 @@ async function decState(b64, key){
   var pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv:iv }, key, ct);
   return JSON.parse(new TextDecoder().decode(pt));
 }
+function syncEndpoint(){ return (S.sync && S.sync.url) || '/sync'; }
 var _pushTimer = null;
 function maybePush(){
-  if(!(S.sync && S.sync.auto && S.sync.url && S.sync.pass && HAS_CRYPTO)) return;
+  if(!(S.sync && S.sync.auto && S.sync.pass && HAS_CRYPTO)) return;
   clearTimeout(_pushTimer);
   _pushTimer = setTimeout(pushSync, 1500);
 }
 async function pushSync(){
   if(!HAS_CRYPTO){ setSyncStatus('当前环境不支持加密同步'); return; }
-  if(!S.sync.url || !S.sync.pass){ setSyncStatus('请先填写 Worker 地址与口令'); return; }
+  if(!S.sync.pass){ setSyncStatus('请先填写同步口令'); return; }
   setSyncStatus('上传中…');
   try{
     var key = await deriveKey(S.sync.pass);
     var k = await sha256hex(S.sync.pass);
     S.sync.last = Date.now();
     var blob = await encState(S, key);
-    var r = await fetch(S.sync.url, { method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({ k:k, data:blob, ts:Date.now() }) });
+    var r = await fetch(syncEndpoint(), { method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify({ k:k, data:blob, ts:Date.now() }) });
     if(!r.ok) throw new Error('HTTP '+r.status);
     setSyncStatus('已推送 '+new Date().toLocaleTimeString());
   }catch(e){ setSyncStatus('推送失败：'+e.message); }
 }
 async function pullSync(){
   if(!HAS_CRYPTO){ setSyncStatus('当前环境不支持加密同步'); return; }
-  if(!S.sync.url || !S.sync.pass){ setSyncStatus('请先填写 Worker 地址与口令'); return; }
+  if(!S.sync.pass){ setSyncStatus('请先填写同步口令'); return; }
   setSyncStatus('拉取中…');
   try{
     var k = await sha256hex(S.sync.pass);
-    var r = await fetch(S.sync.url+'?k='+encodeURIComponent(k), { method:'GET' });
+    var r = await fetch(syncEndpoint()+'?k='+encodeURIComponent(k), { method:'GET' });
     if(!r.ok) throw new Error('HTTP '+r.status);
     var j = await r.json();
     if(!j.data){ setSyncStatus('远端暂无数据，可先推送'); return; }
